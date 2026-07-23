@@ -10,6 +10,7 @@ use App\Services\Email\Email;
 use App\Services\Email\EmailObject;
 use App\Utils\Traits\MakesHash;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\View;
 
 /**
  * Envía un albarán por correo al cliente.
@@ -68,8 +69,11 @@ class AlbaranMailer
                 $mo->body = $body !== '' ? $body : null;
 
                 // Síncrono a propósito: el PDF y los textos se generan aquí,
-                // con los rótulos de albarán todavía activos.
-                Email::dispatchSync($mo, $quote->company);
+                // con los rótulos de albarán todavía activos. Además, dentro de
+                // withPatchedTemplate() la plantilla 'email.template.client' del
+                // core se sustituye por la copia del módulo (sin el botón "Ver"
+                // vacío ni la lista de enlaces vacía que dejaban un hueco).
+                $this->withPatchedTemplate(fn () => Email::dispatchSync($mo, $quote->company));
 
                 $invitation->sent_date = now();
                 $invitation->email_status = null;
@@ -83,6 +87,47 @@ class AlbaranMailer
         });
 
         return $sent;
+    }
+
+    /**
+     * Ejecuta $callback con la plantilla de correo del módulo antepuesta al
+     * resolver de vistas, de modo que el core renderice
+     * 'email.template.client' desde nuestra copia parcheada
+     * (resources/views/email/template/client.blade.php) en vez de la suya.
+     *
+     * El core siempre reescribe html_template a 'email.template.client' en
+     * cada envío (EmailDefaults::setTemplate), así que no basta con cambiar el
+     * nombre de la vista: hay que hacer que ESE nombre resuelva a nuestro
+     * fichero. Se restaura el resolver al terminar (finally). El envío es
+     * síncrono y no renderiza ninguna otra vista, así que el cambio no afecta
+     * a nada más.
+     */
+    private function withPatchedTemplate(\Closure $callback): mixed
+    {
+        $finder = View::getFinder();
+        $factory = View::getFacadeRoot();
+
+        // Sólo FileViewFinder permite anteponer una ruta y restaurarla; con
+        // cualquier otro resolver, se envía con la plantilla del core.
+        if (! $finder instanceof \Illuminate\View\FileViewFinder) {
+            return $callback();
+        }
+
+        $original = $finder->getPaths();
+
+        $finder->prependLocation(module_path('Albaranes', 'resources/views'));
+        $factory->flushFinderCache();
+
+        try {
+            return $callback();
+        } finally {
+            // FileViewFinder no expone un setter de rutas: se restaura por
+            // reflexión al array original y se limpia la caché de vistas.
+            $prop = new \ReflectionProperty(\Illuminate\View\FileViewFinder::class, 'paths');
+            $prop->setAccessible(true);
+            $prop->setValue($finder, $original);
+            $factory->flushFinderCache();
+        }
     }
 
     /**
