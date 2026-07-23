@@ -1,0 +1,17 @@
+{
+    "name": "Albaranes",
+    "alias": "albaranes",
+    "description": "Albaranes (delivery notes) para Invoice Ninja self-hosted: crea albaranes con formato de presupuesto y agrúpalos en una factura detallada línea por línea.",
+    "keywords": [
+        "albaran",
+        "delivery-note",
+        "quote",
+        "invoice",
+        "spain"
+    ],
+    "priority": 0,
+    "providers": [
+        "Modules\\Albaranes\\Providers\\AlbaranesServiceProvider"
+    ],
+    "files": []
+}

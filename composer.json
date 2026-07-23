@@ -1,0 +1,19 @@
+{
+    "name": "nakytec/invoiceninja-albaranes",
+    "description": "Módulo de Invoice Ninja self-hosted para albaranes y su agrupación en facturas",
+    "license": "MIT",
+    "type": "laravel-module",
+    "require": {
+        "php": "^8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Albaranes\\": "app/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Modules\\Albaranes\\Tests\\": "tests/"
+        }
+    }
+}
