@@ -13,4 +13,5 @@ Route::group(['middleware' => ['throttle:api', 'token_auth', 'valid_json', 'loca
     Route::post('clients/{client}/consolidate', [AlbaranApiController::class, 'consolidate'])->name('consolidate');
     Route::put('quotes/{quote}/toggle', [AlbaranApiController::class, 'toggle'])->name('toggle');
     Route::get('quotes/{quote}/pdf', [AlbaranApiController::class, 'pdf'])->name('pdf');
+    Route::post('quotes/{quote}/email', [AlbaranApiController::class, 'email'])->name('email');
 });

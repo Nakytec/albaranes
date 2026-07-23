@@ -25,6 +25,10 @@
   th { font-size: 11px; text-transform: uppercase; color: #888; }
   td.amount, th.amount { text-align: right; }
   .muted { color: #888; font-size: 13px; }
+  .contacts { display: flex; gap: 14px; flex-wrap: wrap; }
+  .contacts label { display: flex; align-items: center; gap: 6px; font-weight: 400; font-size: 13px; color: #1a1a1a; margin: 0; }
+  .sent { font-size: 12px; color: #17663a; white-space: nowrap; }
+  .notsent { font-size: 12px; color: #b06a00; white-space: nowrap; }
   .results { list-style: none; margin: 6px 0 0; padding: 0; }
   .results li { padding: 8px 10px; border: 1px solid #e3e6eb; border-radius: 8px; margin-bottom: 6px; cursor: pointer; }
   .results li:hover { background: #f0f5ff; }
@@ -38,6 +42,9 @@
     input[type=text], input[type=password] { background: #14161a; color: #e8eaed; border-color: #2c313a; }
     .results li { border-color: #2c313a; }
     button.secondary { background: #2c313a; color: #e8eaed; }
+    .contacts label { color: #e8eaed; }
+    .sent { color: #6ddc9b; }
+    .notsent { color: #e0a34e; }
   }
 </style>
 </head>
@@ -61,6 +68,10 @@
     </div>
     <ul class="results" id="clientResults"></ul>
     <div id="selectedClient" class="muted"></div>
+    <div id="contactsBox" style="display:none;margin-top:10px">
+      <label>Enviar los albaranes a</label>
+      <div id="contactsList" class="contacts"></div>
+    </div>
   </div>
 
   <div class="card" id="candidatesCard" style="display:none">
@@ -80,10 +91,10 @@
     <table>
       <thead><tr>
         <th style="width:34px"><input type="checkbox" id="checkAll"></th>
-        <th>Nº</th><th>Fecha</th><th>Referencia</th><th class="amount">Importe</th><th></th>
+        <th>Nº</th><th>Fecha</th><th>Referencia</th><th class="amount">Importe</th><th>Enviado</th><th></th>
       </tr></thead>
       <tbody id="albBody"></tbody>
-      <tfoot><tr><td colspan="4" class="amount total">Seleccionado</td><td class="amount total" id="selTotal">0,00</td><td></td></tr></tfoot>
+      <tfoot><tr><td colspan="4" class="amount total">Seleccionado</td><td class="amount total" id="selTotal">0,00</td><td colspan="2"></td></tr></tfoot>
     </table>
     <div id="msg"></div>
   </div>
@@ -94,9 +105,12 @@ const origin = window.location.origin;
 let token = localStorage.getItem('in_albaran_token') || '';
 let client = null;
 let albaranes = [];
+let contacts = [];
 
 const $ = (id) => document.getElementById(id);
 const money = (n) => new Intl.NumberFormat('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fecha = (s) => { if (!s) return ''; const d = new Date(s.replace(' ', 'T')); return isNaN(d) ? s : d.toLocaleString('es-ES', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'}); };
 
 function headers() { return { 'X-API-TOKEN': token, 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' }; }
 function showMsg(text, kind) { $('msg').innerHTML = text ? `<div class="msg ${kind}">${text}</div>` : ''; }
@@ -181,32 +195,69 @@ async function toggleAlbaran(id, on) {
 }
 
 async function loadAlbaranes() {
-  $('albBody').innerHTML = '<tr><td colspan="5" class="muted">Cargando…</td></tr>';
+  $('albBody').innerHTML = '<tr><td colspan="7" class="muted">Cargando…</td></tr>';
   showMsg('');
   try {
     const j = await api('/api/v1/albaranes/clients/' + client.id);
     albaranes = j.albaranes || [];
+    renderContacts(j.contacts || []);
     renderAlbaranes();
-  } catch (e) { $('albBody').innerHTML = `<tr><td colspan="5"><div class="msg err">${e.message}</div></td></tr>`; }
+  } catch (e) { $('albBody').innerHTML = `<tr><td colspan="7"><div class="msg err">${e.message}</div></td></tr>`; }
 }
+
+// Destinatarios: se marcan por defecto los contactos que ya reciben correo en
+// la ficha del cliente; el usuario puede acotar el envío a los que quiera.
+function renderContacts(list) {
+  contacts = list;
+  $('contactsBox').style.display = list.length ? 'block' : 'none';
+  $('contactsList').innerHTML = list.map(c =>
+    `<label><input type="checkbox" class="contactchk" value="${esc(c.id)}"${c.default ? ' checked' : ''}> ${esc(c.name)} <span class="muted">&lt;${esc(c.email)}&gt;</span></label>`
+  ).join('');
+}
+
+function selectedContacts() { return [...document.querySelectorAll('.contactchk:checked')].map(c => c.value); }
 
 function renderAlbaranes() {
   $('albHeader').textContent = `Albaranes pendientes (${albaranes.length})`;
-  if (!albaranes.length) { $('albBody').innerHTML = '<tr><td colspan="5" class="muted">Este cliente no tiene albaranes pendientes de facturar.</td></tr>'; recalc(); return; }
+  if (!albaranes.length) { $('albBody').innerHTML = '<tr><td colspan="7" class="muted">Este cliente no tiene albaranes pendientes de facturar.</td></tr>'; recalc(); return; }
   $('albBody').innerHTML = '';
   albaranes.forEach(a => {
+    const enviado = a.sent_at
+      ? `<span class="sent" title="${esc((a.sent_to || []).join(', '))}">✓ ${fecha(a.sent_at)}</span>`
+      : '<span class="notsent">Sin enviar</span>';
     const tr = document.createElement('tr');
     tr.innerHTML = `<td><input type="checkbox" class="albchk" data-id="${a.id}" data-amount="${a.amount}"></td>
-      <td>${a.number || ''}</td><td>${a.date || ''}</td><td>${a.po_number || ''}</td>
+      <td>${esc(a.number)}</td><td>${esc(a.date)}</td><td>${esc(a.po_number)}</td>
       <td class="amount">${money(a.amount)}</td>
-      <td style="white-space:nowrap"><button class="secondary pdfbtn" data-id="${a.id}" data-num="${a.number || a.id}">PDF</button>
+      <td>${enviado}</td>
+      <td style="white-space:nowrap"><button class="secondary pdfbtn" data-id="${a.id}" data-num="${esc(a.number || a.id)}">PDF</button>
+        <button class="secondary sendbtn" data-id="${a.id}" data-num="${esc(a.number || a.id)}" title="Enviar el albarán por correo">Enviar</button>
         <button class="secondary unmarkbtn" data-id="${a.id}" title="Quitar la marca de albarán">✕</button></td>`;
     $('albBody').appendChild(tr);
   });
   document.querySelectorAll('.albchk').forEach(c => c.addEventListener('change', recalc));
   document.querySelectorAll('.pdfbtn').forEach(b => b.addEventListener('click', () => downloadPdf(b.dataset.id, b.dataset.num)));
+  document.querySelectorAll('.sendbtn').forEach(b => b.addEventListener('click', () => sendAlbaran(b, b.dataset.id, b.dataset.num)));
   document.querySelectorAll('.unmarkbtn').forEach(b => b.addEventListener('click', () => toggleAlbaran(b.dataset.id, false)));
   recalc();
+}
+
+async function sendAlbaran(btn, id, num) {
+  const elegidos = selectedContacts();
+  const destinos = contacts.filter(c => elegidos.includes(c.id)).map(c => c.email);
+
+  if (!destinos.length) { showMsg('Marca al menos un destinatario en la ficha del cliente.', 'err'); return; }
+  if (!confirm(`¿Enviar el albarán ${num} a ${destinos.join(', ')}?`)) return;
+
+  btn.disabled = true;
+  showMsg('Enviando albarán…', 'ok');
+  try {
+    const j = await api('/api/v1/albaranes/quotes/' + id + '/email', {
+      method: 'POST', body: JSON.stringify({ contacts: elegidos })
+    });
+    showMsg('✓ ' + j.message, 'ok');
+    await loadAlbaranes();
+  } catch (e) { showMsg(e.message, 'err'); btn.disabled = false; }
 }
 
 $('checkAll').onchange = (e) => { document.querySelectorAll('.albchk').forEach(c => c.checked = e.target.checked); recalc(); };

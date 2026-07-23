@@ -3,14 +3,17 @@
 namespace Modules\Albaranes\Http\Controllers;
 
 use App\Models\Client;
+use App\Models\ClientContact;
 use App\Models\Quote;
+use App\Models\QuoteInvitation;
 use App\Services\Quote\GetQuotePdf;
 use App\Utils\Traits\MakesHash;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\Lang;
 use Modules\Albaranes\Services\AlbaranConsolidator;
+use Modules\Albaranes\Services\AlbaranLabels;
+use Modules\Albaranes\Services\AlbaranMailer;
 use Modules\Albaranes\Services\AlbaranService;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -22,23 +25,47 @@ class AlbaranApiController extends Controller
     {
     }
 
-    /** Albaranes pendientes de facturar de un cliente. */
+    /** Albaranes pendientes de facturar de un cliente, con su estado de envío. */
     public function index(Request $request, Client $client): JsonResponse
     {
         $this->authorizeCompany($client->company_id);
 
-        $data = $this->albaranes->pendingForClient($client)->map(fn (Quote $q) => [
-            'id' => $q->hashed_id,
-            'number' => $q->number,
-            'date' => $q->date,
-            'amount' => (float) $q->amount,
-            'po_number' => $q->po_number,
-        ])->values();
+        $data = $this->albaranes->pendingForClient($client)->map(function (Quote $q) {
+            $enviadas = $q->invitations->filter(fn (QuoteInvitation $i) => $i->sent_date);
+
+            return [
+                'id' => $q->hashed_id,
+                'number' => $q->number,
+                'date' => $q->date,
+                'amount' => (float) $q->amount,
+                'po_number' => $q->po_number,
+                'sent_at' => $enviadas->max('sent_date'),
+                'sent_to' => $enviadas->map(fn (QuoteInvitation $i) => optional($i->contact)->email)->filter()->unique()->values(),
+            ];
+        })->values();
 
         return response()->json([
             'client' => ['id' => $client->hashed_id, 'name' => $client->present()->name()],
+            'contacts' => $this->contactsOf($client),
             'albaranes' => $data,
         ]);
+    }
+
+    /**
+     * Contactos del cliente a los que se puede enviar un albarán.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function contactsOf(Client $client): array
+    {
+        return $client->contacts
+            ->filter(fn (ClientContact $c) => $c->email)
+            ->map(fn (ClientContact $c) => [
+                'id' => $c->hashed_id,
+                'name' => trim($c->first_name . ' ' . $c->last_name) ?: $c->email,
+                'email' => $c->email,
+                'default' => (bool) $c->send_email,
+            ])->values()->all();
     }
 
     /** Presupuestos del cliente que aún no son albaranes (para marcarlos). */
@@ -110,13 +137,7 @@ class AlbaranApiController extends Controller
         ]);
     }
 
-    /**
-     * PDF del albarán: el mismo PDF del presupuesto pero con el título "Albarán".
-     * IN construye ese rótulo desde las traducciones personalizadas del cliente
-     * (settings->translations, vía Ninja::transformTranslations) y recarga el
-     * cliente desde BD al renderizar, así que inyectamos la traducción en los
-     * settings del cliente durante el render y la restauramos siempre (finally).
-     */
+    /** PDF del albarán: el del presupuesto, pero rotulado "Albarán". */
     public function pdf(Request $request, Quote $quote): Response
     {
         $this->authorizeCompany($quote->company_id);
@@ -126,30 +147,7 @@ class AlbaranApiController extends Controller
             $quote = $quote->fresh();
         }
 
-        $client = $quote->client;
-        $locale = optional($quote->invitations->first()?->contact)->preferredLocale() ?: $client->locale();
-        $settings = $client->settings;
-        $original = $settings->translations ?? null;
-
-        try {
-            $settings->translations = (object) array_merge(
-                (array) ($original ?: []),
-                $this->albaranTranslations($locale)
-            );
-            $client->settings = $settings;
-            $client->saveQuietly();
-
-            $pdf = (new GetQuotePdf($quote->fresh()))->run();
-        } finally {
-            $settings = $client->settings;
-            if ($original === null) {
-                unset($settings->translations);
-            } else {
-                $settings->translations = $original;
-            }
-            $client->settings = $settings;
-            $client->saveQuietly();
-        }
+        $pdf = (new AlbaranLabels())->apply($quote, fn () => (new GetQuotePdf($quote->fresh()))->run());
 
         $filename = $this->slug(config('albaranes.document_label') . '-' . ($quote->number ?: $quote->id)) . '.pdf';
 
@@ -160,29 +158,34 @@ class AlbaranApiController extends Controller
     }
 
     /**
-     * Construye las traducciones que convierten "presupuesto" en "Albarán" en
-     * todas las etiquetas del PDF (título, "emitido a", "fecha de", "términos
-     * de"…) para el idioma dado. Se aplican sólo durante el render del albarán.
+     * Envía el albarán por correo al cliente. El PDF adjunto, el asunto y el
+     * cuerpo salen rotulados "Albarán", no "Presupuesto".
      *
-     * @return array<string, string>
+     * Body opcional: {"contacts": ["ID1","ID2"]} para elegir destinatarios; si
+     * no se indica, se envía a los contactos que reciben correo por defecto.
      */
-    private function albaranTranslations(string $locale): array
+    public function email(Request $request, Quote $quote): JsonResponse
     {
-        $label = (string) config('albaranes.document_label');
-        $word = (string) Lang::get('texts.quote', [], $locale);
+        $this->authorizeCompany($quote->company_id);
 
-        if ($word === '' || $word === 'texts.quote') {
-            return [];
+        abort_unless($this->albaranes->isAlbaran($quote), 422, 'Este presupuesto no está marcado como albarán.');
+
+        $validated = $request->validate([
+            'contacts' => ['sometimes', 'array'],
+            'contacts.*' => ['string'],
+        ]);
+
+        try {
+            $sent = (new AlbaranMailer())->send($quote, $validated['contacts'] ?? []);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        $overrides = [];
-        foreach ((array) Lang::get('texts', [], $locale) as $key => $value) {
-            if (is_string($value) && mb_stripos($value, $word) !== false) {
-                $overrides[$key] = str_ireplace($word, $label, $value);
-            }
-        }
-
-        return $overrides;
+        return response()->json([
+            'message' => 'Albarán enviado a ' . implode(', ', $sent) . '.',
+            'sent_to' => $sent,
+            'sent_at' => $quote->fresh()->last_sent_date,
+        ]);
     }
 
     private function slug(string $text): string
