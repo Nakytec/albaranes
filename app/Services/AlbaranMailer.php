@@ -59,6 +59,14 @@ class AlbaranMailer
                 $mo->email_template_subject = 'email_subject_quote';
                 $mo->variables = $this->withoutViewButton();
 
+                // Textos propios del albarán. Si se dejan vacíos en la config,
+                // el core cae en la plantilla de presupuesto de la empresa.
+                $subject = trim((string) config('albaranes.email_subject'));
+                $body = trim((string) config('albaranes.email_body'));
+
+                $mo->subject = $subject !== '' ? $subject : null;
+                $mo->body = $body !== '' ? $body : null;
+
                 // Síncrono a propósito: el PDF y los textos se generan aquí,
                 // con los rótulos de albarán todavía activos.
                 Email::dispatchSync($mo, $quote->company);

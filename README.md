@@ -51,6 +51,12 @@ php artisan optimize:clear
 ALBARAN_MARKER_FIELD=custom_value4     # campo del presupuesto que marca "albarán"
 ALBARAN_MARKER_VALUE=albaran           # valor que indica que es albarán
 ALBARAN_DOCUMENT_LABEL=Albarán         # rótulo impreso (título y cabeceras)
+
+# Correo con el que se envía el albarán. Admiten las variables de Invoice Ninja
+# ($client, $number, $amount, $account…); el cuerpo es HTML y la firma de la
+# empresa se añade sola. Vacíos = plantilla de presupuesto de Invoice Ninja.
+ALBARAN_EMAIL_SUBJECT='Albarán $number — $account'
+ALBARAN_EMAIL_BODY='$client<br><br>Le adjuntamos el albarán $number por un importe de $amount.'
 ```
 
 Elige un `ALBARAN_MARKER_FIELD` (`custom_value1..4`) que no uses para otra cosa en presupuestos. No hace falta activarlo en Settings: el marcado se hace desde la mini-página. Si además quieres marcarlos desde la interfaz de presupuestos, activa el campo correspondiente en Settings → Custom Fields → Invoice (Invoice Ninja comparte esos campos con los presupuestos); ten en cuenta que entonces también aparecerá en facturas.

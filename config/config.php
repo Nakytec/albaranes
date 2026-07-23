@@ -26,6 +26,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Correo del albarán
+    |--------------------------------------------------------------------------
+    | Asunto y cuerpo del correo con el que se envía un albarán. Admiten las
+    | variables de Invoice Ninja: $client, $number, $amount, $account (nombre de
+    | la empresa), $date… El cuerpo es HTML y no lleva enlace al portal: el
+    | albarán es el PDF adjunto. La firma de la empresa se añade sola.
+    |
+    | Si se dejan vacíos, se usa la plantilla de presupuesto de Invoice Ninja.
+    */
+    'email_subject' => env('ALBARAN_EMAIL_SUBJECT', 'Albarán $number — $account'),
+    'email_body' => env('ALBARAN_EMAIL_BODY', '$client<br><br>Le adjuntamos el albarán $number por un importe de $amount.'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Formato de la factura consolidada
     |--------------------------------------------------------------------------
     | header: una línea de cabecera por albarán ("Albarán Nº · fecha") y debajo
