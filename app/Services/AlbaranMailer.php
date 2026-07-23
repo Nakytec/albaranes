@@ -85,18 +85,19 @@ class AlbaranMailer
      * presupuesto: los rótulos de albarán sólo viven durante el envío, no en
      * el portal. Para el receptor, el albarán es el PDF adjunto.
      *
-     * @return array<string, array<string, string>>
+     * Los overrides van sobre el array ya aplanado que devuelve
+     * HtmlEngine::makeValues(), así que son cadenas, no ['value' => …].
+     *
+     * @return array<string, string>
      */
     private function withoutViewButton(): array
     {
-        $empty = ['value' => '', 'label' => ''];
-
         return [
-            '$view_link' => $empty,
-            '$viewLink' => $empty,
-            '$viewButton' => $empty,
-            '$view_button' => $empty,
-            '$view_url' => $empty,
+            '$view_link' => '',
+            '$viewLink' => '',
+            '$viewButton' => '',
+            '$view_button' => '',
+            '$view_url' => '',
         ];
     }
 
