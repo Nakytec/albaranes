@@ -57,6 +57,7 @@ class AlbaranMailer
                 $mo->client_id = $quote->client_id;
                 $mo->email_template_body = 'email_template_quote';
                 $mo->email_template_subject = 'email_subject_quote';
+                $mo->variables = $this->withoutViewButton();
 
                 // Síncrono a propósito: el PDF y los textos se generan aquí,
                 // con los rótulos de albarán todavía activos.
@@ -74,6 +75,29 @@ class AlbaranMailer
         });
 
         return $sent;
+    }
+
+    /**
+     * Overrides de variables que dejan el correo sin el botón "Ver
+     * presupuesto" ni su enlace.
+     *
+     * Ese botón lleva al portal del cliente, que muestra el documento como
+     * presupuesto: los rótulos de albarán sólo viven durante el envío, no en
+     * el portal. Para el receptor, el albarán es el PDF adjunto.
+     *
+     * @return array<string, array<string, string>>
+     */
+    private function withoutViewButton(): array
+    {
+        $empty = ['value' => '', 'label' => ''];
+
+        return [
+            '$view_link' => $empty,
+            '$viewLink' => $empty,
+            '$viewButton' => $empty,
+            '$view_button' => $empty,
+            '$view_url' => $empty,
+        ];
     }
 
     /**

@@ -84,6 +84,7 @@ POST /api/v1/albaranes/quotes/{quote_id}/email         {"contacts": ["ID1"]}
 - **No añade pantallas nativas al panel de Invoice Ninja** (su admin es una app compilada aparte). La gestión visual se hace en la mini-página propia; la creación reutiliza la interfaz de presupuestos.
 - El PDF con rótulo "Albarán" se obtiene desde el endpoint del módulo (o los botones PDF/Enviar de la mini-página); descargado o enviado desde el panel de presupuestos, sale rotulado como presupuesto.
 - El rótulo "Albarán" en el correo se aplica sobre los textos traducidos de Invoice Ninja. Si la empresa tiene una **plantilla de correo personalizada** con la palabra "presupuesto" escrita a mano, ese texto se envía tal cual.
+- El correo del albarán **no lleva el botón "Ver presupuesto"**: ese enlace abre el portal del cliente, donde el documento se ve como presupuesto (los rótulos de albarán sólo viven durante el envío). El albarán viaja en el PDF adjunto.
 
 ## Licencia
 
